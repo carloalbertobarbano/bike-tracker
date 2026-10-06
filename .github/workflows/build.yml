@@ -1,0 +1,82 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to publish releases on tag pushes
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Set version
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            echo "VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION_NAME=dev-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
+          # Monotonic, so every CI build installs as an update over the previous one.
+          echo "VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+
+      - name: Decode signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.PEDAL_KEYSTORE_BASE64 }}
+        run: |
+          if [[ -n "$KEYSTORE_BASE64" ]]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/pedal-release.jks"
+            echo "PEDAL_KEYSTORE_FILE=$RUNNER_TEMP/pedal-release.jks" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            echo "::error::PEDAL_KEYSTORE_BASE64 secret is missing; refusing to publish a debug-signed release."
+            exit 1
+          else
+            echo "::warning::Signing secrets not set; the APK is signed with a throwaway debug key and can't update a release install."
+            echo "VERSION_NAME=${VERSION_NAME}-debugsigned" >> "$GITHUB_ENV"
+          fi
+
+      - name: Test and build
+        env:
+          PEDAL_KEYSTORE_PASSWORD: ${{ secrets.PEDAL_KEYSTORE_PASSWORD }}
+        run: ./gradlew --no-daemon testDebugUnitTest assembleRelease
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: app/build/reports/
+
+      - name: Collect APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/pedal-${VERSION_NAME}.apk"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pedal-${{ env.VERSION_NAME }}
+          path: dist/*.apk
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*.apk
+          generate_release_notes: true

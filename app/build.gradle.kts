@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -5,6 +7,17 @@ plugins {
     id("com.google.devtools.ksp")
     id("app.cash.paparazzi")
 }
+
+// Release signing: CI passes env vars (from GitHub secrets); local builds read the
+// gitignored keystore.properties. Without either, release builds fall back to the debug key.
+val keystoreProps = Properties().apply {
+    rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+
+fun signingValue(env: String, prop: String): String? =
+    System.getenv(env)?.takeIf { it.isNotBlank() } ?: keystoreProps.getProperty(prop)
+
+val releaseStoreFile = signingValue("PEDAL_KEYSTORE_FILE", "storeFile")?.let { rootProject.file(it) }
 
 android {
     namespace = "app.pedal"
@@ -14,8 +27,20 @@ android {
         applicationId = "app.pedal"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // CI sets these from the run number / git tag so every build installs as an update.
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
+        versionName = System.getenv("VERSION_NAME") ?: "1.0"
+    }
+
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = signingValue("PEDAL_KEYSTORE_PASSWORD", "storePassword")
+                keyAlias = signingValue("PEDAL_KEY_ALIAS", "keyAlias") ?: "pedal"
+                keyPassword = signingValue("PEDAL_KEY_PASSWORD", "keyPassword") ?: storePassword
+            }
+        }
     }
 
     buildTypes {
@@ -23,9 +48,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the debug key so the release APK is directly installable.
-            // Replace with your own signing config before publishing.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
     compileOptions {

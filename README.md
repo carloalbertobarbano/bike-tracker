@@ -29,13 +29,41 @@ Requirements: JDK 17 and Android SDK 35. Android Studio works too: open this fol
 
 ```bash
 ./gradlew assembleDebug     # app/build/outputs/apk/debug/app-debug.apk
-./gradlew assembleRelease   # app/build/outputs/apk/release/app-release.apk (~1.8 MB, minified)
+./gradlew assembleRelease   # app/build/outputs/apk/release/app-release.apk (~1.8 MB, minified, signed)
 ./gradlew testDebugUnitTest # unit tests: stats, route matching, GPX
 ./gradlew recordPaparazziDebug  # re-render UI screenshots (no device needed)
 ```
 
-The release build is signed with the debug key so you can install it directly. Set up your
-own signing config before you distribute it.
+### Releases (GitHub Actions)
+
+`.github/workflows/build.yml` runs the tests and builds a signed release APK on every push.
+The APK is attached to the workflow run as an artifact.
+
+To publish a release with a permanent download link, push a version tag:
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+The workflow then creates a GitHub release named after the tag and attaches `pedal-1.0.0.apk`.
+
+### Signing
+
+Release APKs are signed with a permanent key, so new builds install as updates and your rides are kept.
+
+- **CI** reads the repository secrets `PEDAL_KEYSTORE_BASE64` (the keystore, base64-encoded)
+  and `PEDAL_KEYSTORE_PASSWORD`.
+- **Local builds** read a gitignored `keystore.properties`:
+  ```properties
+  storeFile=/path/to/pedal-release.jks
+  storePassword=...
+  keyAlias=pedal
+  ```
+- If neither is set, release builds fall back to the debug key. CI marks those APKs `-debugsigned`
+  and won't publish a release with them.
+
+**Back up the keystore and its password.** If you lose them, you can't publish updates that
+install over existing copies of the app.
 
 Install on a phone that has USB debugging enabled: `adb install -r app/build/outputs/apk/release/app-release.apk`
 
