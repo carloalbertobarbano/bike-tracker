@@ -9,6 +9,8 @@ satellite maps, and for following imported GPX routes.
 
 - **Live tracking** in a foreground service, so recording continues with the screen off. Shows speed,
   distance, moving time, average and max speed, climb and descent, altitude and elapsed time.
+- **Heading-up map**: tap the compass button, or pick it in Settings, to rotate the map so your
+  direction of travel points up. The needle always points north. Tap again for north-up.
 - **Auto-pause** when you stop. Manual pause starts a new track segment, so the gap isn't joined by
   a straight line.
 - **Maps** (all free, no API keys): CyclOSM (bike lanes and routes), OSM Standard, OpenTopoMap

@@ -21,6 +21,8 @@ data class AppSettings(
     val offRouteAlert: Boolean = true,
     val offRouteDistanceM: Int = 50,
     val mapStyle: MapStyle = MapStyle.CYCLE,
+    /** Rotate the map so the direction of travel points up. */
+    val headingUp: Boolean = false,
     val activeRouteId: Long = -1L,
 )
 
@@ -42,6 +44,7 @@ class SettingsStore(context: Context) {
             .putBoolean("offRouteAlert", next.offRouteAlert)
             .putInt("offRouteDistanceM", next.offRouteDistanceM)
             .putString("mapStyle", next.mapStyle.name)
+            .putBoolean("headingUp", next.headingUp)
             .putLong("activeRouteId", next.activeRouteId)
             .apply()
         _state.value = next
@@ -56,6 +59,7 @@ class SettingsStore(context: Context) {
             offRouteAlert = prefs.getBoolean("offRouteAlert", d.offRouteAlert),
             offRouteDistanceM = prefs.getInt("offRouteDistanceM", d.offRouteDistanceM),
             mapStyle = enumOr(prefs.getString("mapStyle", null), d.mapStyle),
+            headingUp = prefs.getBoolean("headingUp", d.headingUp),
             activeRouteId = prefs.getLong("activeRouteId", d.activeRouteId),
         )
     }

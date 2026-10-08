@@ -14,6 +14,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -21,6 +22,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -72,7 +75,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -83,12 +88,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -113,6 +122,7 @@ import app.pedal.tracking.TrackingStatus
 import app.pedal.ui.components.StatValue
 import app.pedal.ui.map.OsmMap
 import app.pedal.ui.theme.Numeric
+import app.pedal.util.Angles
 import app.pedal.util.Fmt
 import app.pedal.util.Measure
 import kotlinx.coroutines.delay
@@ -129,6 +139,7 @@ fun RideScreen(
     val location by vm.location.collectAsStateWithLifecycle()
     val route by vm.activeRoute.collectAsStateWithLifecycle()
     val progress by vm.routeProgress.collectAsStateWithLifecycle()
+    val heading by vm.heading.collectAsStateWithLifecycle()
 
     var follow by rememberSaveable { mutableStateOf(true) }
     var showLayers by remember { mutableStateOf(false) }
@@ -198,6 +209,16 @@ fun RideScreen(
     val offRoute = if (tracking.isActive) tracking.offRoute
     else (progress?.distanceFromRoute ?: 0.0) > settings.offRouteDistanceM
 
+    // Heading-up rotates the map only while it follows you; after a manual pan the rotation freezes
+    // until you re-centre. Before the first bearing arrives (standing still) nothing changes.
+    val orientation: Float? = when {
+        !settings.headingUp -> 0f
+        follow -> heading?.let { -it }
+        else -> null
+    }
+    var mapRotation by remember { mutableFloatStateOf(0f) }
+    SideEffect { orientation?.let { mapRotation = it } }
+
     RideContent(
         tracking = tracking,
         settings = settings,
@@ -217,10 +238,17 @@ fun RideScreen(
                 location = location,
                 follow = follow,
                 centerOffsetY = centerOffsetY,
+                orientation = orientation,
                 onUserPan = { follow = false },
             )
         },
         onRecenter = { follow = true },
+        headingUp = settings.headingUp,
+        mapRotation = mapRotation,
+        onToggleOrientation = {
+            if (!settings.headingUp) follow = true
+            vm.toggleHeadingUp()
+        },
         onLayers = { showLayers = true },
         onSettings = onOpenSettings,
         onStopFollowing = vm::stopFollowing,
@@ -270,9 +298,12 @@ internal fun RideContent(
     offRoute: Boolean,
     hasPermission: Boolean,
     follow: Boolean,
+    headingUp: Boolean,
+    mapRotation: Float,
     bottomPadding: Dp,
     map: @Composable (centerOffsetY: Int) -> Unit,
     onRecenter: () -> Unit,
+    onToggleOrientation: () -> Unit,
     onLayers: () -> Unit,
     onSettings: () -> Unit,
     onStopFollowing: () -> Unit,
@@ -307,6 +338,7 @@ internal fun RideContent(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 MapButton(Icons.Filled.Layers, "Map style", onClick = onLayers)
                 MapButton(Icons.Filled.Settings, "Settings", onClick = onSettings)
+                CompassButton(headingUp, mapRotation, onToggleOrientation)
             }
         }
 
@@ -628,6 +660,48 @@ internal fun RouteChip(route: RouteTrack, progress: RouteProgress?, offRoute: Bo
                     gapSize = 0.dp,
                 )
             }
+        }
+    }
+}
+
+/**
+ * Toggles north-up / direction-of-travel. The needle always points to north on screen, and the
+ * button is highlighted while the map follows your heading.
+ */
+@Composable
+internal fun CompassButton(headingUp: Boolean, mapRotation: Float, onClick: () -> Unit) {
+    // Accumulate rotation without wrapping so the needle never spins the long way round 0°/360°.
+    val unwrapped = remember { floatArrayOf(mapRotation) }
+    unwrapped[0] += Angles.delta(unwrapped[0], mapRotation)
+    val needle by animateFloatAsState(unwrapped[0], tween(600), label = "needle")
+
+    val north = MaterialTheme.colorScheme.tertiary
+    val south = if (headingUp) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f)
+    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = if (headingUp) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+        border = if (headingUp) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        shadowElevation = 6.dp,
+        modifier = Modifier
+            .size(48.dp)
+            .semantics {
+                contentDescription = if (headingUp) "Map follows direction of travel. Tap for north up"
+                else "Map is north up. Tap to follow direction of travel"
+            },
+    ) {
+        Canvas(Modifier.fillMaxSize().padding(12.dp).rotate(needle)) {
+            val cx = size.width / 2
+            val half = size.width * 0.22f
+            val northPath = Path().apply {
+                moveTo(cx, 0f); lineTo(cx + half, size.height / 2); lineTo(cx - half, size.height / 2); close()
+            }
+            val southPath = Path().apply {
+                moveTo(cx, size.height); lineTo(cx + half, size.height / 2); lineTo(cx - half, size.height / 2); close()
+            }
+            drawPath(northPath, north)
+            drawPath(southPath, south)
         }
     }
 }

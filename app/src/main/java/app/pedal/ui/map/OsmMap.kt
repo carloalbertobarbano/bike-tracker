@@ -17,6 +17,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.pedal.data.MapStyle
 import app.pedal.tracking.LiveLocation
 import app.pedal.ui.theme.MapColors
+import app.pedal.util.Angles
 import app.pedal.util.LatLon
 import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.util.BoundingBox
@@ -25,6 +26,7 @@ import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.TilesOverlay
+import kotlin.math.abs
 
 /**
  * Compose wrapper around an osmdroid MapView.
@@ -35,6 +37,8 @@ import org.osmdroid.views.overlay.TilesOverlay
  * @param fitPoints zoom to fit these points once (re-fits when a different list instance is passed)
  * @param centerOffsetY vertical pixel offset for the map centre (negative = higher), used to keep
  *        the location visible above the stats panel
+ * @param orientation map rotation in degrees (0 = north up, -heading = heading up);
+ *        null leaves the current rotation untouched
  */
 @Composable
 fun OsmMap(
@@ -47,6 +51,7 @@ fun OsmMap(
     fitPoints: List<LatLon>? = null,
     showEndpoints: Boolean = false,
     centerOffsetY: Int = 0,
+    orientation: Float? = 0f,
     onUserPan: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -78,7 +83,7 @@ fun OsmMap(
             holder.setRoute(route)
             holder.setTrack(track)
             holder.setEndpoints(showEndpoints, track, route)
-            holder.setLocation(location, follow)
+            holder.setLocation(location, follow, orientation)
             holder.fit(fitPoints)
             holder.map.invalidate()
         },
@@ -119,6 +124,7 @@ private class MapHolder(private val context: Context) {
     private var centeredOnce = false
     private var lastFollow = false
     private var lastFollowed: LiveLocation? = null
+    private var orientationTarget = 0f
 
     init {
         attachTouchListener()
@@ -217,20 +223,32 @@ private class MapHolder(private val context: Context) {
         endpoints.end = last?.let { GeoPoint(it.lat, it.lon) }
     }
 
-    fun setLocation(loc: LiveLocation?, follow: Boolean) {
+    fun setLocation(loc: LiveLocation?, follow: Boolean, orientation: Float?) {
         locationDot.location = loc?.let { GeoPoint(it.lat, it.lon) }
         locationDot.accuracy = loc?.accuracy ?: 0f
         locationDot.bearing = loc?.bearing
-        if (loc != null && follow && (loc != lastFollowed || !lastFollow)) {
+
+        // New rotation to animate to, if it changed noticeably (null = keep the current one).
+        // osmdroid turns the shortest way round, so 350° → 10° rotates by 20°.
+        val rotateTo: Float? = orientation
+            ?.takeIf { abs(Angles.delta(orientationTarget, it)) > 0.5f }
+            ?.also { orientationTarget = it }
+
+        if (loc != null && follow && (loc != lastFollowed || !lastFollow || rotateTo != null)) {
             val gp = GeoPoint(loc.lat, loc.lon)
             if (!centeredOnce) {
                 map.controller.setZoom(16.5)
                 map.controller.setCenter(gp)
+                rotateTo?.let { map.mapOrientation = it }
                 centeredOnce = true
             } else {
-                map.controller.animateTo(gp, null, 500L)
+                // Pan and rotate in one animation so the view glides rather than steps.
+                map.controller.animateTo(gp, null, 600L, rotateTo)
             }
             lastFollowed = loc
+        } else if (rotateTo != null) {
+            // Not following (e.g. switching back to north-up after panning): rotate in place.
+            map.controller.animateTo(map.mapCenter, null, 400L, rotateTo)
         }
         lastFollow = follow
     }

@@ -12,12 +12,15 @@ import app.pedal.tracking.LocationSource.toLive
 import app.pedal.tracking.RouteFollower
 import app.pedal.tracking.RouteProgress
 import app.pedal.tracking.TrackingSession
+import app.pedal.util.HeadingFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -35,6 +38,14 @@ class RideViewModel(app: Application) : AndroidViewModel(app) {
     /** Live location from the recording service when riding, otherwise from a light idle listener. */
     val location: StateFlow<LiveLocation?> =
         combine(tracking, idleLocation) { t, idle -> t.location ?: idle }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    private val headingFilter = HeadingFilter()
+
+    /** Smoothed direction of travel in degrees from north; null until we've moved. */
+    val heading: StateFlow<Float?> =
+        location.map { headingFilter.update(it?.bearing) }
+            .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private var follower: Pair<Long, RouteFollower>? = null
@@ -70,6 +81,8 @@ class RideViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setMapStyle(style: MapStyle) = container.settings.update { it.copy(mapStyle = style) }
+
+    fun toggleHeadingUp() = container.settings.update { it.copy(headingUp = !it.headingUp) }
 
     fun stopFollowing() = container.followRoute(null)
 }

@@ -41,7 +41,8 @@ class LocationDotOverlay(private val density: Float, color: Int) : Overlay() {
         }
         bearing?.let { b ->
             canvas.save()
-            canvas.rotate(b - mapView.mapOrientation, x, y)
+            // The canvas is already rotated with the map, so the bearing alone is correct.
+            canvas.rotate(b, x, y)
             arrow.reset()
             arrow.moveTo(x, y - 17 * density)
             arrow.lineTo(x - 7 * density, y - 7 * density)

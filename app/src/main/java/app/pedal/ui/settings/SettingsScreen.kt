@@ -100,8 +100,27 @@ fun SettingsScreen(onBack: () -> Unit) {
                     )
                 }
             }
-            Section("Default map") {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(16.dp)) {
+            Section("Map") {
+                Text(
+                    "Orientation",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(start = 16.dp, top = 14.dp),
+                )
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    listOf(false to "North up", true to "Direction of travel").forEachIndexed { i, (value, label) ->
+                        SegmentedButton(
+                            selected = s.headingUp == value,
+                            onClick = { store.update { it.copy(headingUp = value) } },
+                            shape = SegmentedButtonDefaults.itemShape(i, 2),
+                        ) { Text(label, maxLines = 1) }
+                    }
+                }
+                Text(
+                    "Default style",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(start = 16.dp, top = 6.dp),
+                )
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 16.dp)) {
                     MapStyle.entries.forEachIndexed { i, m ->
                         SegmentedButton(
                             selected = s.mapStyle == m,

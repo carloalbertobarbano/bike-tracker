@@ -214,3 +214,29 @@ class GpxTest {
         assertEquals(1000L, parsed.points[1].time)
     }
 }
+
+class HeadingTest {
+    @Test
+    fun deltaTakesShortestWay() {
+        assertEquals(20f, app.pedal.util.Angles.delta(350f, 10f), 1e-4f)
+        assertEquals(-20f, app.pedal.util.Angles.delta(10f, 350f), 1e-4f)
+        assertEquals(180f, app.pedal.util.Angles.delta(0f, 180f), 1e-4f)
+        assertEquals(-90f, app.pedal.util.Angles.delta(-40f, -130f), 1e-4f)
+    }
+
+    @Test
+    fun filterWrapsAroundNorth() {
+        val f = app.pedal.util.HeadingFilter(alpha = 0.5f)
+        f.update(350f)
+        val v = f.update(10f)!!
+        assertEquals(0f, v, 1e-3f) // halfway between 350 and 10 through north, not 180
+    }
+
+    @Test
+    fun filterKeepsLastValueWhenStill() {
+        val f = app.pedal.util.HeadingFilter()
+        assertNull(f.update(null))
+        f.update(90f)
+        assertEquals(90f, f.update(null)!!, 1e-4f)
+    }
+}

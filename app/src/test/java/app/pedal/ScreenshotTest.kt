@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -135,7 +136,13 @@ class ScreenshotTest {
     private val settings = AppSettings()
 
     @Composable
-    private fun RideFrame(state: TrackingState, withRoute: Boolean, progress: RouteProgress?, offRoute: Boolean = false) {
+    private fun RideFrame(
+        state: TrackingState,
+        withRoute: Boolean,
+        progress: RouteProgress?,
+        offRoute: Boolean = false,
+        mapRotation: Float? = null, // non-null = heading-up
+    ) {
         Scaffold(bottomBar = { PedalBottomBar(TAB_RIDE, state.isActive) {} }) { padding ->
             RideContent(
                 tracking = state,
@@ -146,9 +153,19 @@ class ScreenshotTest {
                 offRoute = offRoute,
                 hasPermission = true,
                 follow = true,
+                headingUp = mapRotation != null,
+                mapRotation = mapRotation ?: 0f,
                 bottomPadding = padding.calculateBottomPadding(),
-                map = { FakeMap(showRoute = withRoute, trackUntil = if (state.isActive) 0.46f else null) },
-                onRecenter = {}, onLayers = {}, onSettings = {}, onStopFollowing = {}, onAllowLocation = {},
+                map = {
+                    // Mimic the real map rotation; scale up so the rotated image still covers the screen.
+                    Box(Modifier.fillMaxSize().graphicsLayer {
+                        rotationZ = mapRotation ?: 0f
+                        if (mapRotation != null) { scaleX = 1.9f; scaleY = 1.9f }
+                    }) {
+                        FakeMap(showRoute = withRoute, trackUntil = if (state.isActive) 0.46f else null)
+                    }
+                },
+                onRecenter = {}, onToggleOrientation = {}, onLayers = {}, onSettings = {}, onStopFollowing = {}, onAllowLocation = {},
                 onStart = {}, onPause = {}, onResume = {}, onStop = {},
             )
         }
@@ -180,6 +197,18 @@ class ScreenshotTest {
             PedalTheme {
                 RideFrame(recording, withRoute = true, progress = RouteProgress(4.0, 18_420.0, route.total - 18_420.0, route.total))
             }
+        }
+    }
+
+    @Test
+    fun ride_heading_up_light() = paparazzi.snapshot {
+        PedalTheme {
+            RideFrame(
+                recording,
+                withRoute = true,
+                progress = RouteProgress(4.0, 18_420.0, route.total - 18_420.0, route.total),
+                mapRotation = -38f,
+            )
         }
     }
 
